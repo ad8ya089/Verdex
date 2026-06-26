@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { saveAnalysis } from '@/lib/storage'
 
 export default function HomePage() {
   const router = useRouter()
@@ -44,24 +43,32 @@ export default function HomePage() {
     setSelectedFile(file)
   }
 
-  const runAnalysis = async (formData: FormData) => {
+  const submitApplication = async (formData: FormData) => {
     setIsAnalyzing(true)
     try {
-      const response = await fetch('/api/analyze-loan', {
+      const response = await fetch('/api/submit', {
         method: 'POST',
         body: formData,
       })
 
-      const result = await response.json()
+      const result = await response.json() as { applicationId?: string; cached?: boolean; error?: string }
       if (!response.ok) {
-        throw new Error(result.error || 'Analysis failed.')
+        throw new Error(result.error || 'Submission failed.')
       }
 
-      const id = saveAnalysis(result.data)
-      toast.success('Analysis completed successfully.')
-      router.push(`/analysis/${id}`)
+      if (!result.applicationId) {
+        throw new Error('Submission did not return an application ID.')
+      }
+
+      if (result.cached) {
+        toast.success('Returning cached result for this application.')
+      } else {
+        toast.success('Application submitted. Starting analysis.')
+      }
+
+      router.push(`/analysis/${result.applicationId}`)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to analyze application.'
+      const message = error instanceof Error ? error.message : 'Failed to submit application.'
       toast.error(message)
     } finally {
       setIsAnalyzing(false)
@@ -72,7 +79,7 @@ export default function HomePage() {
     if (!selectedFile || isAnalyzing) return
     const formData = new FormData()
     formData.append('file', selectedFile)
-    await runAnalysis(formData)
+    await submitApplication(formData)
   }
 
   const handleManualSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -98,8 +105,21 @@ Years at Current Employment: ${employmentYears || '0'}
     `.trim()
 
     const formData = new FormData()
-    formData.append('text', summaryText)
-    await runAnalysis(formData)
+    formData.append(
+      'form',
+      JSON.stringify({
+        name,
+        age,
+        annualIncome: income,
+        employmentType,
+        loanAmount,
+        loanPurpose,
+        creditScore,
+        existingDebts: existingDebts || '0',
+        employmentYears: employmentYears || '0',
+      })
+    )
+    await submitApplication(formData)
   }
 
   return (

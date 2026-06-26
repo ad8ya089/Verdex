@@ -57,21 +57,12 @@ export default function ChatbotPage() {
 
     try {
       const searchParams = new URLSearchParams(window.location.search)
-      const analysisId = searchParams.get("id")
-      let context: string | undefined
-
-      if (analysisId) {
-        const { getAnalysis } = await import("@/lib/storage")
-        const analysis = getAnalysis(analysisId)
-        if (analysis) {
-          context = `Risk Score: ${analysis.riskScore}/100 (${analysis.riskCategory}), Recommendation: ${analysis.recommendation}, Key Factors: ${analysis.keyFactors.join("; ")}`
-        }
-      }
+      const applicationId = searchParams.get("id") ?? undefined
 
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: inputMessage, context }),
+        body: JSON.stringify({ message: inputMessage, applicationId }),
       })
       const data = await res.json()
 

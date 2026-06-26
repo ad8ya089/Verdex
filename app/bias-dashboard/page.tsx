@@ -7,38 +7,42 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle, Users, MapPin, DollarSign, Calendar, ShieldOff } from "lucide-react"
-import { getAllAnalyses, type AnalysisResult } from "@/lib/storage"
+import type { BiasFactors, HistoryRow } from "@/lib/types"
+
+const emptyBias: BiasFactors = { overall: 0, gender: 0, location: 0, income: 0, age: 0 }
 
 export default function BiasDashboard() {
-  const [analyses, setAnalyses] = useState<AnalysisResult[]>([])
+  const [analyses, setAnalyses] = useState<HistoryRow[]>([])
 
   useEffect(() => {
-    setAnalyses(getAllAnalyses())
+    fetch("/api/history")
+      .then((response) => (response.ok ? response.json() : []))
+      .then(setAnalyses)
+      .catch(() => setAnalyses([]))
   }, [])
 
+  const completed = useMemo(
+    () => analyses.filter((analysis) => analysis.analysis_results[0]),
+    [analyses]
+  )
+
   const biasMetrics = useMemo(() => {
-    const latest = analyses[0]
-    if (!latest) {
-      return { overall: 0, gender: 0, location: 0, income: 0, age: 0 }
-    }
-    return {
-      overall: latest.biasFactors.overall,
-      gender: latest.biasFactors.gender,
-      location: latest.biasFactors.location,
-      income: latest.biasFactors.income,
-      age: latest.biasFactors.age,
-    }
-  }, [analyses])
+    const latest = completed[0]?.analysis_results[0]
+    return latest?.bias_factors ?? emptyBias
+  }, [completed])
 
   const recentAnalyses = useMemo(
     () =>
-      analyses.slice(0, 5).map((analysis) => ({
-        id: analysis.id,
-        applicantName: analysis.applicantName,
-        overallBias: analysis.biasFactors.overall,
-        riskCategory: analysis.riskCategory,
-      })),
-    [analyses]
+      completed.slice(0, 5).map((analysis) => {
+        const result = analysis.analysis_results[0]
+        return {
+          id: analysis.id,
+          applicantName: analysis.applicant_name ?? "Unknown Applicant",
+          overallBias: result.bias_factors.overall,
+          riskCategory: result.risk_category,
+        }
+      }),
+    [completed]
   )
 
   const getBiasLevel = (score: number) => {
@@ -47,7 +51,7 @@ export default function BiasDashboard() {
     return { level: "High", color: "text-red-600", variant: "destructive" as const }
   }
 
-  if (analyses.length === 0) {
+  if (completed.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-6xl mx-auto">
@@ -59,7 +63,7 @@ export default function BiasDashboard() {
             <ShieldOff className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No bias data yet. Run an analysis first.</h3>
             <p className="text-gray-500 mb-6">
-              No analyses yet. Upload a loan application on the homepage to see bias metrics here.
+              Upload a loan application on the homepage to see bias metrics here.
             </p>
             <Button asChild variant="outline">
               <Link href="/">Analyze a Loan</Link>

@@ -19,64 +19,129 @@ import {
   LineChart,
   Line,
 } from "recharts"
-import { getAllAnalyses } from "@/lib/storage"
+import type { HistoryRow } from "@/lib/types"
+
+const riskColors = {
+  Low: "#10B981",
+  Medium: "#F59E0B",
+  High: "#EF4444",
+}
+
+function monthLabel(date: Date) {
+  return date.toLocaleString("en-IN", { month: "short" })
+}
 
 export default function AnalyticsPage() {
-  const [stats, setStats] = useState({
-    totalAnalyses: "0",
-    approvalRate: "0%",
-    avgRiskScore: "0",
-    biasIncidents: "0",
-  })
-  const [hasAnalyses, setHasAnalyses] = useState(false)
-
-  const riskDistribution = [
-    { name: "Low Risk", value: 65, color: "#10B981" },
-    { name: "Medium Risk", value: 25, color: "#F59E0B" },
-    { name: "High Risk", value: 10, color: "#EF4444" },
-  ]
-
-  const monthlyAnalyses = [
-    { month: "Jan", analyses: 45, approved: 38, denied: 7 },
-    { month: "Feb", analyses: 52, approved: 41, denied: 11 },
-    { month: "Mar", analyses: 48, approved: 39, denied: 9 },
-    { month: "Apr", analyses: 61, approved: 48, denied: 13 },
-    { month: "May", analyses: 55, approved: 44, denied: 11 },
-    { month: "Jun", analyses: 67, approved: 53, denied: 14 },
-  ]
-
-  const biasMetrics = [
-    { factor: "Gender", score: 15 },
-    { factor: "Location", score: 10 },
-    { factor: "Income", score: 20 },
-    { factor: "Age", score: 5 },
-  ]
+  const [analyses, setAnalyses] = useState<HistoryRow[]>([])
 
   useEffect(() => {
-    const analyses = getAllAnalyses()
-    if (analyses.length === 0) {
-      setStats({
+    fetch("/api/history")
+      .then((response) => (response.ok ? response.json() : []))
+      .then(setAnalyses)
+      .catch(() => setAnalyses([]))
+  }, [])
+
+  const completed = useMemo(
+    () =>
+      analyses
+        .map((analysis) => ({ analysis, result: analysis.analysis_results[0] }))
+        .filter((item) => item.result),
+    [analyses]
+  )
+
+  const hasAnalyses = completed.length > 0
+
+  const stats = useMemo(() => {
+    if (!hasAnalyses) {
+      return {
         totalAnalyses: "0",
         approvalRate: "0%",
         avgRiskScore: "0",
         biasIncidents: "0",
-      })
-      setHasAnalyses(false)
-      return
+      }
     }
 
-    const approved = analyses.filter((item) => item.recommendation === "Approve").length
-    const avgRiskScore = analyses.reduce((sum, item) => sum + item.riskScore, 0) / analyses.length
-    const biasIncidents = analyses.filter((item) => item.biasFactors.overall > 40).length
+    const approved = completed.filter((item) => item.result.recommendation === "Approve").length
+    const avgRiskScore =
+      completed.reduce((sum, item) => sum + item.result.risk_score, 0) / completed.length
+    const biasIncidents = completed.filter((item) => item.result.bias_factors.overall > 40).length
 
-    setStats({
-      totalAnalyses: analyses.length.toString(),
-      approvalRate: `${Math.round((approved / analyses.length) * 100)}%`,
+    return {
+      totalAnalyses: completed.length.toString(),
+      approvalRate: `${Math.round((approved / completed.length) * 100)}%`,
       avgRiskScore: avgRiskScore.toFixed(0),
       biasIncidents: biasIncidents.toString(),
+    }
+  }, [completed, hasAnalyses])
+
+  const riskDistribution = useMemo(() => {
+    const counts = { Low: 0, Medium: 0, High: 0 }
+    completed.forEach((item) => {
+      counts[item.result.risk_category] += 1
     })
-    setHasAnalyses(true)
-  }, [])
+
+    return [
+      { name: "Low Risk", value: counts.Low, color: riskColors.Low },
+      { name: "Medium Risk", value: counts.Medium, color: riskColors.Medium },
+      { name: "High Risk", value: counts.High, color: riskColors.High },
+    ]
+  }, [completed])
+
+  const monthlyAnalyses = useMemo(() => {
+    const months = Array.from({ length: 6 }, (_, offset) => {
+      const date = new Date()
+      date.setMonth(date.getMonth() - (5 - offset))
+      return {
+        key: `${date.getFullYear()}-${date.getMonth()}`,
+        month: monthLabel(date),
+        analyses: 0,
+        approved: 0,
+        denied: 0,
+      }
+    })
+
+    completed.forEach((item) => {
+      const date = new Date(item.analysis.created_at)
+      const key = `${date.getFullYear()}-${date.getMonth()}`
+      const bucket = months.find((month) => month.key === key)
+      if (!bucket) return
+
+      bucket.analyses += 1
+      if (item.result.recommendation === "Approve") bucket.approved += 1
+      if (item.result.recommendation === "Decline") bucket.denied += 1
+    })
+
+    return months
+  }, [completed])
+
+  const biasMetrics = useMemo(() => {
+    if (!hasAnalyses) {
+      return [
+        { factor: "Gender", score: 0 },
+        { factor: "Location", score: 0 },
+        { factor: "Income", score: 0 },
+        { factor: "Age", score: 0 },
+      ]
+    }
+
+    const totals = completed.reduce(
+      (acc, item) => {
+        acc.gender += item.result.bias_factors.gender
+        acc.location += item.result.bias_factors.location
+        acc.income += item.result.bias_factors.income
+        acc.age += item.result.bias_factors.age
+        return acc
+      },
+      { gender: 0, location: 0, income: 0, age: 0 }
+    )
+
+    return [
+      { factor: "Gender", score: Math.round(totals.gender / completed.length) },
+      { factor: "Location", score: Math.round(totals.location / completed.length) },
+      { factor: "Income", score: Math.round(totals.income / completed.length) },
+      { factor: "Age", score: Math.round(totals.age / completed.length) },
+    ]
+  }, [completed, hasAnalyses])
 
   const performanceMetrics = useMemo(
     () => [
@@ -115,10 +180,10 @@ export default function AnalyticsPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {performanceMetrics.map((metric, index) => {
+          {performanceMetrics.map((metric) => {
             const Icon = metric.icon
             return (
-              <Card key={index} className="shadow-sm hover:shadow-md transition-shadow">
+              <Card key={metric.metric} className="shadow-sm hover:shadow-md transition-shadow">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -152,8 +217,8 @@ export default function AnalyticsPage() {
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {riskDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    {riskDistribution.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -187,7 +252,7 @@ export default function AnalyticsPage() {
           <Card className="shadow-sm hover:shadow-md transition-shadow">
             <CardHeader>
               <CardTitle>Bias Detection Metrics</CardTitle>
-              <CardDescription>Bias scores across different demographic factors</CardDescription>
+              <CardDescription>Average bias scores across demographic factors</CardDescription>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -204,8 +269,8 @@ export default function AnalyticsPage() {
 
           <Card className="shadow-sm hover:shadow-md transition-shadow">
             <CardHeader>
-              <CardTitle>Monthly Approvals vs Denials</CardTitle>
-              <CardDescription>Comparison of approved and denied applications</CardDescription>
+              <CardTitle>Monthly Approvals vs Declines</CardTitle>
+              <CardDescription>Comparison of approved and declined applications</CardDescription>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>

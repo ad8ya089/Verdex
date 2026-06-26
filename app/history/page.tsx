@@ -8,17 +8,6 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import {
   Table,
   TableBody,
   TableCell,
@@ -26,28 +15,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { clearAllAnalyses, getAllAnalyses, type AnalysisResult } from "@/lib/storage"
+import type { HistoryRow, Recommendation, RiskCategory } from "@/lib/types"
 
 export default function HistoryPage() {
-  const [analyses, setAnalyses] = useState<AnalysisResult[]>([])
+  const [analyses, setAnalyses] = useState<HistoryRow[]>([])
   const router = useRouter()
 
   useEffect(() => {
-    setAnalyses(getAllAnalyses())
+    fetch("/api/history")
+      .then((response) => (response.ok ? response.json() : []))
+      .then(setAnalyses)
+      .catch(() => setAnalyses([]))
   }, [])
 
-  const handleClearAll = () => {
-    clearAllAnalyses()
-    setAnalyses([])
-  }
-
-  const getRiskBadgeClass = (risk: AnalysisResult["riskCategory"]) => {
+  const getRiskBadgeClass = (risk: RiskCategory) => {
     if (risk === "Low") return "bg-green-100 text-green-700 border-green-200"
     if (risk === "Medium") return "bg-yellow-100 text-yellow-700 border-yellow-200"
     return "bg-red-100 text-red-700 border-red-200"
   }
 
-  const getRecommendationClass = (value: AnalysisResult["recommendation"]) => {
+  const getRecommendationClass = (value: Recommendation) => {
     if (value === "Approve") return "text-green-700"
     if (value === "Review") return "text-yellow-700"
     return "text-red-700"
@@ -59,27 +46,8 @@ export default function HistoryPage() {
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">Analysis History</h1>
-            <p className="text-gray-600">All loan applications reviewed on this device</p>
+            <p className="text-gray-600">Completed loan applications stored in Supabase</p>
           </div>
-          {analyses.length > 0 && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive">Clear All</Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear analysis history?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will remove all locally stored analyses from this browser.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleClearAll}>Clear All</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
         </div>
 
         {analyses.length === 0 ? (
@@ -105,26 +73,31 @@ export default function HistoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {analyses.map((analysis) => (
-                  <TableRow key={analysis.id}>
-                    <TableCell>{new Date(analysis.timestamp).toLocaleDateString("en-IN")}</TableCell>
-                    <TableCell>{analysis.applicantName}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={getRiskBadgeClass(analysis.riskCategory)}>
-                        {analysis.riskScore} ({analysis.riskCategory})
-                      </Badge>
-                    </TableCell>
-                    <TableCell className={getRecommendationClass(analysis.recommendation)}>
-                      {analysis.recommendation}
-                    </TableCell>
-                    <TableCell>{analysis.biasFactors.overall}%</TableCell>
-                    <TableCell>
-                      <Button variant="outline" size="sm" onClick={() => router.push(`/analysis/${analysis.id}`)}>
-                        View
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {analyses.map((analysis) => {
+                  const result = analysis.analysis_results[0]
+                  if (!result) return null
+
+                  return (
+                    <TableRow key={analysis.id}>
+                      <TableCell>{new Date(analysis.created_at).toLocaleDateString("en-IN")}</TableCell>
+                      <TableCell>{analysis.applicant_name ?? "Unknown Applicant"}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={getRiskBadgeClass(result.risk_category)}>
+                          {result.risk_score} ({result.risk_category})
+                        </Badge>
+                      </TableCell>
+                      <TableCell className={getRecommendationClass(result.recommendation)}>
+                        {result.recommendation}
+                      </TableCell>
+                      <TableCell>{result.bias_factors.overall}%</TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" onClick={() => router.push(`/analysis/${analysis.id}`)}>
+                          View
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </Card>
